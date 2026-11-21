@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="nl" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CineKring — Arnhem Filmclub</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    body { background-color: #0b0d13; color: #f3f4f6; font-family: system-ui, -apple-system, sans-serif; }
+    .glass { background: rgba(24, 28, 39, 0.85); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+  </style>
+</head>
+<body class="min-h-screen pb-20">
+  <!-- Header -->
+  <header class="sticky top-0 z-20 glass px-4 py-4 mb-6">
+    <div class="max-w-3xl mx-auto flex items-center justify-between">
+      <div>
+        <h1 class="text-xl font-bold tracking-tight text-amber-400">🎬 CineKring</h1>
+        <p class="text-xs text-gray-400">Focus Filmtheater & Vue Arnhem</p>
+      </div>
+      <button onclick="setUserName()" id="userBadge" class="text-xs bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-full transition">
+        👤 Naam instellen
+      </button>
+    </div>
+  </header>
+
+  <main class="max-w-3xl mx-auto px-4 space-y-8">
+    <!-- Datumprikker -->
+    <section>
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-lg font-semibold text-white">📅 Bios-datums & Stemmen</h2>
+        <button onclick="addDatePrompt()" class="text-xs bg-amber-500 hover:bg-amber-400 text-black font-semibold px-3 py-1.5 rounded-lg">
+          + Datum
+        </button>
+      </div>
+      <div id="datesList" class="space-y-3">
+        <p class="text-sm text-gray-500">Datums laden...</p>
+      </div>
+    </section>
+
+    <!-- Tabs voor Films -->
+    <section>
+      <div class="flex gap-2 border-b border-white/10 pb-3 mb-4 overflow-x-auto">
+        <button onclick="switchTab('bios')" id="tab-bios" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-amber-500 text-black">
+          🎟️ Bios-kandidaten
+        </button>
+        <button onclick="switchTab('watchlist')" id="tab-watchlist" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300">
+          📺 Thuis Watchlist
+        </button>
+        <button onclick="switchTab('watched')" id="tab-watched" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300">
+          ⭐ Gezien
+        </button>
+      </div>
+
+      <div id="filmsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <p class="text-sm text-gray-500">Films laden...</p>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const SUPABASE_URL = "https://crvqmgtdamyumzqfrdeg.supabase.co";
+    const SUPABASE_ANON_KEY = "sb_publishable_OihUeCOMFpOGjOGzWVoqgQ_QksmCFyC";
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+    let currentTab = "bios";
+    let userName = localStorage.getItem("cinekring_user") || "";
+
+    function updateUserBadge() {
+      document.getElementById("userBadge").textContent = userName ? `👤 ${userName}` : "👤 Naam instellen";
+    }
+
+    function setUserName() {
+      const name = prompt("Wat is je voornaam (voor stemmen & cijfers)?", userName);
+      if (name && name.trim()) {
+        userName = name.trim();
+        localStorage.setItem("cinekring_user", userName);
+        updateUserBadge();
+      }
+    }
+
+    function ensureUser() {
+      if (!userName) setUserName();
+      return userName || "Vriend";
+    }
+
+    async function loadDates() {
+      const { data, error } = await db.from("dates").select("*").order("id", { ascending: false }).limit(10);
+      const container = document.getElementById("datesList");
+      if (error || !data?.length) {
+        container.innerHTML = `<p class="text-sm text-gray-500">Nog geen datums voorgesteld. Vraag de Telegram-bot of tik op + Datum.</p>`;
+        return;
+      }
+      container.innerHTML = data.map(d => {
+        const votes = d.votes || {};
+        const voteSummary = Object.entries(votes).map(([k, v]) => `<span class="bg-white/5 px-2 py-0.5 rounded text-xs">${k} ${v}</span>`).join(" ");
+        return `
+          <div class="glass rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <div class="font-semibold text-amber-300">${d.date_label}</div>
+              ${d.movie_title ? `<div class="text-xs text-gray-400">🎬 ${d.movie_title}</div>` : ""}
+              <div class="flex flex-wrap gap-1.5 mt-2">${voteSummary || '<span class="text-xs text-gray-500">Nog geen stemmen</span>'}</div>
+            </div>
+            <div class="flex gap-1.5 shrink-0">
+              <button onclick="voteDate(${d.id}, '✅')" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium">✅ Ja</button>
+              <button onclick="voteDate(${d.id}, '🤔')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium">🤔 Misschien</button>
+              <button onclick="voteDate(${d.id}, '❌')" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-medium">❌ Nee</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    async function voteDate(id, choice) {
+      const user = ensureUser();
+      const { data } = await db.from("dates").select("votes").eq("id", id).single();
+      const updated = { ...(data?.votes || {}), [user]: choice };
+      await db.from("dates").update({ votes: updated }).eq("id", id);
+      loadDates();
+    }
+
+    async function addDatePrompt() {
+      const label = prompt("Welke datum & tijd? (bijv. Vr 27 nov • 20:15 Focus)");
+      if (!label) return;
+      const user = ensureUser();
+      await db.from("dates").insert({ date_label: label, votes: { [user]: "✅" } });
+      loadDates();
+    }
+
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll(".tab-btn").forEach(btn => {
+        btn.className = "tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300";
+      });
+      document.getElementById(`tab-${tab}`).className = "tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-amber-500 text-black";
+      loadFilms();
+    }
+
+    async function loadFilms() {
+      const { data, error } = await db.from("films").select("*").eq("status", currentTab).order("id", { ascending: false });
+      const grid = document.getElementById("filmsGrid");
+      if (error || !data?.length) {
+        grid.innerHTML = `<p class="text-sm text-gray-500 col-span-full">Nog geen films in deze lijst. Voeg ze toe via de Telegram-bot!</p>`;
+        return;
+      }
+      grid.innerHTML = data.map(f => `
+        <div class="glass rounded-2xl overflow-hidden flex flex-col">
+          <div class="flex gap-3 p-3">
+            ${f.poster_url
+              ? `<img src="${f.poster_url}" alt="${f.title}" class="w-20 h-28 object-cover rounded-lg shrink-0 bg-gray-800" />`
+              : `<div class="w-20 h-28 rounded-lg bg-gray-800 flex items-center justify-center text-2xl shrink-0">🎬</div>`}
+            <div class="min-w-0 flex-1">
+              <h3 class="font-bold text-white leading-snug">${f.title} <span class="text-xs font-normal text-gray-400">(${f.year || ""})</span></h3>
+              <p class="text-xs text-amber-400/90 mt-0.5">${f.director || ""}</p>
+              <p class="text-xs text-gray-400 line-clamp-2 mt-1">${f.cast_members || ""}</p>
+              <div class="mt-2 flex items-center gap-2 text-xs text-gray-400">
+                <span>Door ${f.added_by || "Groep"}</span>
+                ${f.rating ? `<span class="text-amber-400 font-semibold">• ⭐ ${f.rating}/10</span>` : ""}
+              </div>
+            </div>
+          </div>
+          <div class="mt-auto border-t border-white/10 px-3 py-2 flex items-center justify-between gap-2 bg-black/20 text-xs">
+            ${f.trailer_url ? `<a href="${f.trailer_url}" target="_blank" class="text-amber-400 hover:underline">▶ Trailer</a>` : `<span></span>`}
+            <div class="flex gap-1.5">
+              ${currentTab !== "bios" ? `<button onclick="moveFilm(${f.id}, 'bios')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20">🎟️ Bios</button>` : ""}
+              ${currentTab !== "watchlist" ? `<button onclick="moveFilm(${f.id}, 'watchlist')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20">📺 Thuis</button>` : ""}
+              <button onclick="rateFilm(${f.id}, '${f.title.replace(/'/g, "\\'")}')" class="px-2 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30">⭐ Cijfer</button>
+            </div>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    async function moveFilm(id, newStatus) {
+      await db.from("films").update({ status: newStatus }).eq("id", id);
+      loadFilms();
+    }
+
+    async function rateFilm(id, title) {
+      const score = prompt(`Welk cijfer (1 t/m 10) geef je ${title}?`);
+      const num = parseFloat(score?.replace(",", "."));
+      if (!num || num < 1 || num > 10) return;
+      await db.from("films").update({ rating: num, status: "watched" }).eq("id", id);
+      switchTab("watched");
+    }
+
+    updateUserBadge();
+    loadDates();
+    loadFilms();
+  </script>
+</body>
+</html>
