@@ -6,7 +6,7 @@ const TMDB_KEY = Deno.env.get("TMDB_API_KEY")!;
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
 async function sendTelegram(chatId: number | string, text: string, buttons?: any[][]) {
-  await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
+  const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -16,6 +16,58 @@ async function sendTelegram(chatId: number | string, text: string, buttons?: any
       reply_markup: buttons ? { inline_keyboard: buttons } : undefined,
     }),
   });
+  return res.json();
+}
+
+// NIEUW: Bouwt en updatet één vastgepind overzicht bovenaan de groep
+async function updatePinnedSummary(chatId: number | string, row: any) {
+  const votes = row.votes || {};
+  const going = Object.entries(votes).filter(([, v]) => v === "✅").map(([k]) => k);
+  const ticketText = row.ticket_buyer ? `🎟️ *Kaartjes:* Gehaald door *${row.ticket_buyer}*` : `🎟️ *Kaartjes:* Nog niet gehaald`;
+
+  const text = [
+    `📌 *EERSTVOLGENDE BIOSCOOPAVOND*`,
+    `🎬 *Film:* ${row.movie_title || "Nog te kiezen"}`,
+    `📍 *Bioscoop:* ${row.cinema || "Focus / Vue Arnhem"}`,
+    `📅 *Wanneer:* ${row.date_label}`,
+    `👥 *Mee (${going.length}):* ${going.length ? going.join(", ") : "Nog niemand"}`,
+    ticketText,
+  ].join("\n");
+
+  const buttons = [
+    [
+      { text: row.ticket_buyer ? "🎟️ Kaartjes toggle" : "🎟️ Ik haal kaartjes", callback_data: `tickets:${row.id}` },
+      { text: "✅ Ik kan", callback_data: `vote:${row.id}|✅` },
+    ],
+    [{ text: "🌐 Open CineKring", url: "https://borskip.github.io/cinekring/" }],
+  ];
+
+  if (row.pinned_message_id) {
+    const editRes = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/editMessageText`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        message_id: row.pinned_message_id,
+        text,
+        parse_mode: "Markdown",
+        reply_markup: { inline_keyboard: buttons },
+      }),
+    });
+    const editData = await editRes.json();
+    if (editData.ok) return;
+  }
+
+  const sent = await sendTelegram(chatId, text, buttons);
+  const msgId = sent?.result?.message_id;
+  if (msgId) {
+    await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/pinChatMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, message_id: msgId, disable_notification: true }),
+    });
+    await supabase.from("dates").update({ pinned: true, pinned_message_id: msgId }).eq("id", row.id);
+  }
 }
 
 async function searchTMDB(query: string) {
@@ -62,11 +114,29 @@ Deno.serve(async (req) => {
         }
       } else if (action === "vote") {
         const [dateId, voteVal] = payload.split("|");
-        const { data: row } = await supabase.from("dates").select("votes, date_label").eq("id", dateId).single();
+        const { data: row } = await supabase.from("dates").select("*").eq("id", dateId).single();
         if (row) {
           const updatedVotes = { ...(row.votes || {}), [user]: voteVal };
-          await supabase.from("dates").update({ votes: updatedVotes }).eq("id", dateId);
-          await sendTelegram(chatId, `📅 *${row.date_label}*: ${Object.entries(updatedVotes).map(([k, v]) => `${k} ${v}`).join(" • ")}`);
+          const { data: updatedRow } = await supabase.from("dates").update({ votes: updatedVotes }).eq("id", dateId).select().single();
+          if (updatedRow?.pinned) {
+            await updatePinnedSummary(chatId, updatedRow);
+          } else {
+            await sendTelegram(
+              chatId,
+              `📅 *${row.date_label}*: ${Object.entries(updatedVotes).map(([k, v]) => `${k} ${v}`).join(" • ")}`,
+              [[{ text: "📌 Zet datum vast bovenaan", callback_data: `pin:${dateId}` }]]
+            );
+          }
+        }
+      } else if (action === "pin") {
+        const { data: row } = await supabase.from("dates").update({ pinned: true }).eq("id", payload).select().single();
+        if (row) await updatePinnedSummary(chatId, row);
+      } else if (action === "tickets") {
+        const { data: row } = await supabase.from("dates").select("*").eq("id", payload).single();
+        if (row) {
+          const nextBuyer = row.ticket_buyer === user ? null : user;
+          const { data: updatedRow } = await supabase.from("dates").update({ ticket_buyer: nextBuyer }).eq("id", payload).select().single();
+          if (updatedRow) await updatePinnedSummary(chatId, updatedRow);
         }
       }
 
@@ -87,6 +157,13 @@ Deno.serve(async (req) => {
     const sender = msg.from?.first_name || "Gebruiker";
     const today = new Date().toLocaleDateString("nl-NL", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 
+    // Snelcommando /volgende om het vastgepinde overzicht direct op te roepen
+    if (msg.text.trim().toLowerCase().startsWith("/volgende")) {
+      const { data: nextDate } = await supabase.from("dates").select("*").order("pinned", { ascending: false }).order("id", { ascending: false }).limit(1).single();
+      if (nextDate) await updatePinnedSummary(chatId, nextDate);
+      return new Response("ok");
+    }
+
     await supabase.from("chat_history").insert({ chat_id: chatId, sender, message: msg.text });
 
     const [{ data: history }, { data: topFilms }] = await Promise.all([
@@ -100,7 +177,7 @@ Deno.serve(async (req) => {
     const systemPrompt = `Je bent CineKringBot voor een vriendengroep in Arnhem (Focus Filmtheater Arnhem & Vue Arnhem).
 Vandaag is het: ${today}. Gebruik Google Search voor actuele films, releases en draaitijden in Arnhem.
 Modus: ${isGroup ? "GROEPSCHAT (Stille Butler: reageer ALLEEN bij films, bios, datums of jouw naam. Anders exact: SILENT)" : "1-OP-1 PRIVÉCURATOR"}.
-Smaakprofiel: ${tasteProfile || "Nog geen films beoordeeld."}
+Smaakprofiel: ${tasteProfile || "Nog geen films beoeld."}
 
 BELANGRIJKE OPMAARREGELS:
 1. Beantwoord ALLEEN de laatste vraag, herhaal GEEN oude onderwerpen uit eerdere berichten.
@@ -141,11 +218,14 @@ Antwoord UITSLUITEND met geldig JSON:
         .select()
         .single();
       const dateButtons = newDate
-        ? [[
-            { text: "✅ Ik kan", callback_data: `vote:${newDate.id}|✅` },
-            { text: "🤔 Misschien", callback_data: `vote:${newDate.id}|🤔` },
-            { text: "❌ Nee", callback_data: `vote:${newDate.id}|❌` },
-          ]]
+        ? [
+            [
+              { text: "✅ Ik kan", callback_data: `vote:${newDate.id}|✅` },
+              { text: "🤔 Misschien", callback_data: `vote:${newDate.id}|🤔` },
+              { text: "❌ Nee", callback_data: `vote:${newDate.id}|❌` },
+            ],
+            [{ text: "📌 Zet datum vast bovenaan", callback_data: `pin:${newDate.id}` }],
+          ]
         : undefined;
       await sendTelegram(chatId, `${parsed.intro}\n\n📅 *Voorstel:* ${parsed.propose_date}`, dateButtons);
     } else if (parsed.intro) {
@@ -176,4 +256,3 @@ Antwoord UITSLUITEND met geldig JSON:
     return new Response("ok");
   }
 });
-
