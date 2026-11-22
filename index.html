@@ -14,10 +14,8 @@
   </style>
 </head>
 <body class="min-h-screen pb-24">
-  <!-- Toast melding -->
   <div id="toast" class="hidden fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-full bg-[#181c27] border border-amber-400/50 text-xs text-white shadow-2xl"></div>
 
-  <!-- Header -->
   <header class="sticky top-0 z-30 glass px-4 py-4 mb-6">
     <div class="max-w-3xl mx-auto flex items-center justify-between">
       <div>
@@ -42,16 +40,15 @@
       </div>
     </section>
 
-    <!-- STRAAKKE BIOS-DATUMPRIKKER -->
+    <!-- Bios-datumprikker -->
     <section class="space-y-3">
       <div class="flex items-center justify-between">
         <h2 class="text-lg font-semibold text-white">📅 Bios-datums & Stemmen</h2>
-        <button onclick="toggleDateForm()" id="toggleDateBtn" class="text-xs bg-amber-500 hover:bg-amber-400 text-black font-semibold px-3 py-1.5 rounded-lg">
+        <button onclick="toggleDateForm()" class="text-xs bg-amber-500 hover:bg-amber-400 text-black font-semibold px-3 py-1.5 rounded-lg">
           + Nieuwe datum
         </button>
       </div>
 
-      <!-- Inklapbaar datumformulier -->
       <form id="newDateForm" onsubmit="submitNewDate(event)" class="hidden glass rounded-2xl p-4 space-y-3 border border-amber-400/30">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
           <div>
@@ -100,24 +97,23 @@
       <div id="tasteGenres" class="text-gray-400"></div>
     </section>
 
-    <!-- LIVE TMDB ZOEK- & AUTOCOMPLETE-BALK + TABS -->
+    <!-- LIVE TMDB ZOEK- & AUTOCOMPLETE-BALK -->
     <section class="space-y-4">
       <div class="relative" id="searchWrapper">
-        <div class="relative flex items-center">
+        <form onsubmit="submitSearchEnter(event)" class="relative flex items-center">
           <span class="absolute left-3.5 text-gray-400 text-sm">🔍</span>
           <input
-            type="text"
+            type="search"
             id="filmSearchInput"
             oninput="handleLiveSearch(this.value)"
             onfocus="if(this.value.trim().length >= 2) handleLiveSearch(this.value)"
             autocomplete="off"
-            placeholder="Zoek een film op TMDB (bijv. Anora, Dune, Conclave)..."
+            placeholder="Typ filmtitel (bijv. Anora, F1, Conclave)..."
             class="w-full bg-[#181c27] border border-white/15 rounded-xl pl-10 pr-10 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400 shadow-lg"
           />
           <button type="button" id="clearSearchBtn" onclick="clearSearch()" class="hidden absolute right-3 text-gray-400 hover:text-white text-sm">✕</button>
-        </div>
+        </form>
 
-        <!-- Dropdown met live TMDB-suggesties -->
         <div id="tmdbDropdown" class="hidden absolute left-0 right-0 mt-1.5 z-40 rounded-2xl bg-[#181c27] border border-white/15 shadow-2xl overflow-hidden max-h-96 overflow-y-auto divide-y divide-white/10"></div>
       </div>
 
@@ -140,7 +136,6 @@
         </button>
       </div>
 
-      <!-- Filterpaneel voor 'Gezien' -->
       <div id="gezienFilterPanel" class="hidden glass rounded-xl p-4 space-y-3">
         <div class="flex items-center justify-between text-xs">
           <span class="font-semibold text-white">Filter geziene films</span>
@@ -168,7 +163,7 @@
     </section>
   </main>
 
-  <!-- UITGEBREIDE FILM POP-UP (VOOR ZOWEL TMDB-ZOEKRESULTATEN ALS EIGEN LIJSTFILMS) -->
+  <!-- FILM POP-UP -->
   <div id="filmModal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onclick="closeModal()">
     <div class="glass rounded-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-5 space-y-4 border border-white/15" onclick="event.stopPropagation()">
       <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
@@ -186,7 +181,7 @@
   <script>
     const SUPABASE_URL = "https://crvqmgtdamyumzqfrdeg.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_OihUeCOMFpOGjOGzWVoqgQ_QksmCFyC";
-    const TMDB_API_KEY = "PLAK_HIER_JE_TMDB_V3_KEY";
+    const TMDB_KEY = "PLAK_HIER_JE_TMDB_KEY"; // Werkt met zowel v3 API Key als lange eyJ... Token!
 
     const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -196,7 +191,20 @@
     let allFilms = [];
     let filtersOpen = false;
     let searchTimer = null;
+    let lastSearchResults = [];
     let activePopupMovie = null;
+
+    // Universele TMDB fetch (ondersteunt zowel korte v3 key als lange Bearer token)
+    async function tmdbFetch(pathWithQuery) {
+      const key = (TMDB_KEY || "").trim();
+      const isBearer = key.length > 45 || key.startsWith("eyJ");
+      const url = isBearer
+        ? `https://api.themoviedb.org/3${pathWithQuery}`
+        : `https://api.themoviedb.org/3${pathWithQuery}${pathWithQuery.includes("?") ? "&" : "?"}api_key=${key}`;
+      const res = await fetch(url, isBearer ? { headers: { Authorization: `Bearer ${key}` } } : undefined);
+      if (!res.ok) throw new Error(`TMDB ${res.status}`);
+      return res.json();
+    }
 
     function notify(msg) {
       const t = document.getElementById("toast");
@@ -224,7 +232,6 @@
       return userName || "Vriend";
     }
 
-    // Sluit TMDB-dropdown bij klik buiten de zoekbalk
     document.addEventListener("click", (e) => {
       if (!document.getElementById("searchWrapper").contains(e.target)) {
         document.getElementById("tmdbDropdown").classList.add("hidden");
@@ -236,8 +243,7 @@
       const form = document.getElementById("newDateForm");
       form.classList.toggle("hidden");
       if (!form.classList.contains("hidden") && !document.getElementById("dateInput").value) {
-        const tomorrow = new Date(Date.now() + 86400000).toISOString().split("T")[0];
-        document.getElementById("dateInput").value = tomorrow;
+        document.getElementById("dateInput").value = new Date(Date.now() + 86400000).toISOString().split("T")[0];
       }
     }
 
@@ -263,13 +269,7 @@
 
       const user = ensureUser();
       const date_label = formatDutchDate(iso, time);
-      await db.from("dates").insert({
-        date_label,
-        cinema,
-        movie_title: movieTitle,
-        votes: { [user]: "✅" }
-      });
-
+      await db.from("dates").insert({ date_label, cinema, movie_title: movieTitle, votes: { [user]: "✅" } });
       document.getElementById("newDateForm").classList.add("hidden");
       notify(`Datum "${date_label}" toegevoegd!`);
       loadDates();
@@ -308,13 +308,10 @@
       const container = document.getElementById("datesList");
       if (error || !data?.length) {
         renderPinnedCard(null);
-        container.innerHTML = `<p class="text-sm text-gray-500">Nog geen datums voorgesteld. Tik op "+ Nieuwe datum" om een voorstel te plaatsen.</p>`;
+        container.innerHTML = `<p class="text-sm text-gray-500">Nog geen datums voorgesteld.</p>`;
         return;
       }
-
-      const pinned = data.find(d => d.pinned) || null;
-      renderPinnedCard(pinned);
-
+      renderPinnedCard(data.find(d => d.pinned) || null);
       container.innerHTML = data.map(d => {
         const votes = d.votes || {};
         const voteSummary = Object.entries(votes).map(([k, v]) => `<span class="bg-white/5 px-2 py-0.5 rounded text-xs">${k} ${v}</span>`).join(" ");
@@ -333,7 +330,7 @@
               <button onclick="voteDate(${d.id}, '🤔')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium">🤔 Misschien</button>
               <button onclick="voteDate(${d.id}, '❌')" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-medium">❌ Nee</button>
               ${!d.pinned ? `<button onclick="pinDate(${d.id})" class="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 text-xs">📌 Zet vast</button>` : ""}
-              <button onclick="deleteDate(${d.id})" title="Verwijder datum" class="px-2 py-1.5 rounded-lg text-gray-500 hover:text-rose-400 text-xs">🗑️</button>
+              <button onclick="deleteDate(${d.id})" class="px-2 py-1.5 rounded-lg text-gray-500 hover:text-rose-400 text-xs">🗑️</button>
             </div>
           </div>
         `;
@@ -343,8 +340,7 @@
     async function voteDate(id, choice) {
       const user = ensureUser();
       const { data } = await db.from("dates").select("votes").eq("id", id).single();
-      const updated = { ...(data?.votes || {}), [user]: choice };
-      await db.from("dates").update({ votes: updated }).eq("id", id);
+      await db.from("dates").update({ votes: { ...(data?.votes || {}), [user]: choice } }).eq("id", id);
       loadDates();
     }
 
@@ -352,7 +348,6 @@
       await db.from("dates").update({ pinned: false }).neq("id", id);
       await db.from("dates").update({ pinned: true }).eq("id", id);
       loadDates();
-      notify("Datum vastgezet bovenaan!");
     }
 
     async function unpinCurrent() {
@@ -368,91 +363,105 @@
 
     async function toggleTickets(id, currentBuyer) {
       const user = ensureUser();
-      const nextBuyer = currentBuyer === user ? null : user;
-      await db.from("dates").update({ ticket_buyer: nextBuyer }).eq("id", id);
+      await db.from("dates").update({ ticket_buyer: currentBuyer === user ? null : user }).eq("id", id);
       loadDates();
     }
 
-    // --- LIVE TMDB ZOEKFUNCTIE AL TYPENDE ---
+    // --- LIVE TMDB ZOEKFUNCTIE (GEEN HANDMATIGE VRAGEN MEER) ---
     function clearSearch() {
       document.getElementById("filmSearchInput").value = "";
       document.getElementById("clearSearchBtn").classList.add("hidden");
       document.getElementById("tmdbDropdown").classList.add("hidden");
+      lastSearchResults = [];
+    }
+
+    async function submitSearchEnter(e) {
+      e.preventDefault();
+      const q = document.getElementById("filmSearchInput").value.trim();
+      if (!q) return;
+      if (lastSearchResults.length > 0) {
+        openTmdbMoviePopup(lastSearchResults[0].id);
+        return;
+      }
+      await runTmdbSearch(q, true);
     }
 
     function handleLiveSearch(raw) {
       const q = raw.trim();
       document.getElementById("clearSearchBtn").classList.toggle("hidden", !q);
       const dropdown = document.getElementById("tmdbDropdown");
-
       if (q.length < 2) {
         dropdown.classList.add("hidden");
         return;
       }
-
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(async () => {
-        dropdown.classList.remove("hidden");
-        dropdown.innerHTML = `<div class="p-4 text-xs text-gray-400">Zoeken op TMDB naar "${q}"...</div>`;
+      searchTimer = setTimeout(() => runTmdbSearch(q, false), 220);
+    }
 
-        if (!TMDB_API_KEY || TMDB_API_KEY.startsWith("PLAK_HIER")) {
-          dropdown.innerHTML = `<div class="p-4 text-xs text-amber-400">Vul eerst je TMDB v3 API-key in bij <code>TMDB_API_KEY</code> in index.html.</div>`;
+    async function runTmdbSearch(q, openFirst) {
+      const dropdown = document.getElementById("tmdbDropdown");
+      dropdown.classList.remove("hidden");
+      dropdown.innerHTML = `<div class="p-4 text-xs text-gray-400">Zoeken op TMDB naar "${q}"...</div>`;
+
+      if (!TMDB_KEY || TMDB_KEY.startsWith("PLAK_HIER")) {
+        dropdown.innerHTML = `<div class="p-4 text-xs text-amber-400">Plak eerst jouw TMDB API-sleutel in <code>index.html</code> bij <code>TMDB_KEY</code>.</div>`;
+        return;
+      }
+
+      try {
+        const data = await tmdbFetch(`/search/movie?query=${encodeURIComponent(q)}&language=nl-NL&include_adult=false`);
+        const results = (data.results || []).slice(0, 6);
+        lastSearchResults = results;
+
+        if (!results.length) {
+          dropdown.innerHTML = `<div class="p-4 text-xs text-gray-400">Geen films gevonden op TMDB voor "${q}".</div>`;
           return;
         }
 
-        try {
-          const res = await fetch(`https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(q)}&language=nl-NL&include_adult=false`);
-          const data = await res.json();
-          const results = (data.results || []).slice(0, 6);
-
-          if (!results.length) {
-            dropdown.innerHTML = `<div class="p-4 text-xs text-gray-400">Geen films gevonden op TMDB voor "${q}".</div>`;
-            return;
-          }
-
-          dropdown.innerHTML = results.map(m => {
-            const yr = (m.release_date || "").slice(0, 4);
-            const poster = m.poster_path ? `https://image.tmdb.org/t/p/w92${m.poster_path}` : "";
-            const inList = allFilms.find(f => Number(f.tmdb_id) === m.id);
-            const statusBadge = inList
-              ? `<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">${inList.status === "bios" ? "🎟️ Bios" : inList.status === "watchlist" ? "📺 Thuis" : "⭐ Gezien"}</span>`
-              : `<span class="text-[11px] text-amber-400">Bekijken →</span>`;
-
-            return `
-              <button type="button" onclick="openTmdbMoviePopup(${m.id})" class="w-full text-left p-3 hover:bg-white/10 transition flex items-center gap-3">
-                ${poster
-                  ? `<img src="${poster}" alt="${m.title}" class="w-10 h-14 object-cover rounded bg-gray-800 shrink-0" />`
-                  : `<div class="w-10 h-14 rounded bg-gray-800 flex items-center justify-center text-sm shrink-0">🎬</div>`}
-                <div class="min-w-0 flex-1">
-                  <div class="font-semibold text-sm text-white truncate">${m.title} <span class="text-xs font-normal text-gray-400">${yr ? `(${yr})` : ""}</span></div>
-                  <p class="text-xs text-gray-400 line-clamp-1 mt-0.5">${m.overview || "Tik voor details, trailer & toevoegen"}</p>
-                </div>
-                <div class="shrink-0">${statusBadge}</div>
-              </button>
-            `;
-          }).join("");
-        } catch (err) {
-          dropdown.innerHTML = `<div class="p-4 text-xs text-rose-400">Fout bij ophalen van TMDB-suggesties.</div>`;
+        if (openFirst) {
+          openTmdbMoviePopup(results[0].id);
+          return;
         }
-      }, 280);
+
+        dropdown.innerHTML = results.map(m => {
+          const yr = (m.release_date || "").slice(0, 4);
+          const poster = m.poster_path ? `https://image.tmdb.org/t/p/w92${m.poster_path}` : "";
+          const inList = allFilms.find(f => Number(f.tmdb_id) === m.id);
+          const badge = inList
+            ? `<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">${inList.status === "bios" ? "🎟️ Bios" : inList.status === "watchlist" ? "📺 Thuis" : "⭐ Gezien"}</span>`
+            : `<span class="text-[11px] text-amber-400">Openen →</span>`;
+
+          return `
+            <button type="button" onclick="openTmdbMoviePopup(${m.id})" class="w-full text-left p-3 hover:bg-white/10 transition flex items-center gap-3">
+              ${poster
+                ? `<img src="${poster}" alt="${m.title}" class="w-10 h-14 object-cover rounded bg-gray-800 shrink-0" />`
+                : `<div class="w-10 h-14 rounded bg-gray-800 flex items-center justify-center text-sm shrink-0">🎬</div>`}
+              <div class="min-w-0 flex-1">
+                <div class="font-semibold text-sm text-white truncate">${m.title} <span class="text-xs font-normal text-gray-400">${yr ? `(${yr})` : ""}</span></div>
+                <p class="text-xs text-gray-400 line-clamp-1 mt-0.5">${m.overview || "Tik om te bekijken & toe te voegen"}</p>
+              </div>
+              <div class="shrink-0">${badge}</div>
+            </button>
+          `;
+        }).join("");
+      } catch (err) {
+        dropdown.innerHTML = `<div class="p-4 text-xs text-rose-400">TMDB verbinding mislukt (${err.message}). Controleer je TMDB_KEY.</div>`;
+      }
     }
 
-    // Haalt volledige TMDB-details op (regisseur, cast, speelduur, genre, trailer) en opent de actie-popup
     async function openTmdbMoviePopup(tmdbId) {
       document.getElementById("tmdbDropdown").classList.add("hidden");
       document.getElementById("modalSubtitle").textContent = "TMDB Filmkaart";
-      document.getElementById("modalTitle").textContent = "Gegevens ophalen...";
+      document.getElementById("modalTitle").textContent = "Laden...";
       document.getElementById("modalMeta").textContent = "";
-      document.getElementById("modalBody").innerHTML = `<p class="text-xs text-gray-400 py-6 text-center">Regisseur, cast en trailer laden via TMDB...</p>`;
+      document.getElementById("modalBody").innerHTML = `<p class="text-xs text-gray-400 py-6 text-center">Regisseur, cast en trailer ophalen...</p>`;
       document.getElementById("filmModal").classList.remove("hidden");
 
       try {
-        const [nlRes, enRes] = await Promise.all([
-          fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}&language=nl-NL`),
-          fetch(`https://api.themoviedb.org/3/movie/${tmdbId}?api_key=${TMDB_API_KEY}&append_to_response=credits,videos&language=en-US`)
+        const [nl, en] = await Promise.all([
+          tmdbFetch(`/movie/${tmdbId}?language=nl-NL`),
+          tmdbFetch(`/movie/${tmdbId}?append_to_response=credits,videos&language=en-US`)
         ]);
-        const nl = await nlRes.json();
-        const en = await enRes.json();
 
         const director = en.credits?.crew?.find(c => c.job === "Director")?.name || "Onbekend";
         const cast = (en.credits?.cast || []).slice(0, 4).map(c => c.name).join(", ");
@@ -467,7 +476,7 @@
           year: (nl.release_date || en.release_date || "").slice(0, 4),
           director,
           cast_members: cast,
-          genre: (nl.genres?.[0]?.name || en.genres?.[0]?.name || "Drama"),
+          genre: nl.genres?.[0]?.name || en.genres?.[0]?.name || "Drama",
           duration: en.runtime ? `${en.runtime} min` : "",
           overview: nl.overview || en.overview || "",
           poster_url: (nl.poster_path || en.poster_path) ? `https://image.tmdb.org/t/p/w500${nl.poster_path || en.poster_path}` : "",
@@ -481,26 +490,22 @@
 
         renderMoviePopup(activePopupMovie);
       } catch (err) {
-        document.getElementById("modalBody").innerHTML = `<p class="text-xs text-rose-400">Kon filmgegevens niet laden van TMDB.</p>`;
+        document.getElementById("modalBody").innerHTML = `<p class="text-xs text-rose-400">Kon filmgegevens niet ophalen van TMDB.</p>`;
       }
     }
 
-    // Opent dezelfde rijke pop-up voor een film die al in jullie lijst staat
     function openSavedMoviePopup(localId) {
       const f = allFilms.find(item => item.id === localId);
       if (!f) return;
       const ytMatch = (f.trailer_url || "").match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/);
-      activePopupMovie = {
-        ...f,
-        trailer_key: ytMatch ? ytMatch[1] : null
-      };
+      activePopupMovie = { ...f, trailer_key: ytMatch ? ytMatch[1] : null };
       renderMoviePopup(activePopupMovie);
       document.getElementById("filmModal").classList.remove("hidden");
     }
 
     function renderMoviePopup(m) {
       const statusLabels = { bios: "🎟️ Staat op Bios-kandidaten", watchlist: "📺 Staat op Thuis Watchlist", watched: "⭐ Staat op Gezien" };
-      document.getElementById("modalSubtitle").textContent = m.status ? statusLabels[m.status] : "Nieuwe film via TMDB";
+      document.getElementById("modalSubtitle").textContent = m.status ? statusLabels[m.status] : "Gevonden via TMDB";
       document.getElementById("modalTitle").textContent = `${m.title} ${m.year ? `(${m.year})` : ""}`;
       document.getElementById("modalMeta").textContent = `${m.director || ""}${m.duration ? ` • ${m.duration}` : ""}${m.genre ? ` • ${m.genre}` : ""}`;
 
@@ -519,7 +524,6 @@
             </div>
           </div>
 
-          <!-- Trailer-sectie binnen pop-up -->
           <div id="popupTrailerContainer">
             ${m.trailer_key
               ? `<button type="button" onclick="embedTrailerInPopup('${m.trailer_key}')" class="w-full py-2.5 rounded-xl bg-white/10 hover:bg-white/15 border border-white/10 text-xs font-medium text-amber-300 flex items-center justify-center gap-2">
@@ -530,19 +534,17 @@
                 </a>`}
           </div>
 
-          <!-- Beslis-knoppen: wat wil je met deze film doen? -->
           <div class="pt-3 border-t border-white/10 space-y-3">
             <p class="text-[11px] uppercase tracking-wider text-gray-400">Wat wil je met deze film doen?</p>
             <div class="grid grid-cols-2 gap-2 text-xs">
-              <button type="button" onclick="savePopupMovie('bios')" class="py-2.5 px-3 rounded-xl font-semibold transition flex items-center justify-center gap-1.5 ${m.status === 'bios' ? 'bg-amber-500 text-black' : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40'}">
+              <button type="button" onclick="savePopupMovie('bios')" class="py-2.5 px-3 rounded-xl font-semibold transition ${m.status === 'bios' ? 'bg-amber-500 text-black' : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-400/40'}">
                 🎟️ Bios-kandidaat
               </button>
-              <button type="button" onclick="savePopupMovie('watchlist')" class="py-2.5 px-3 rounded-xl font-semibold transition flex items-center justify-center gap-1.5 ${m.status === 'watchlist' ? 'bg-amber-500 text-black' : 'bg-white/10 hover:bg-white/15 text-white border border-white/10'}">
+              <button type="button" onclick="savePopupMovie('watchlist')" class="py-2.5 px-3 rounded-xl font-semibold transition ${m.status === 'watchlist' ? 'bg-amber-500 text-black' : 'bg-white/10 hover:bg-white/15 text-white border border-white/10'}">
                 📺 Thuis Watchlist
               </button>
             </div>
 
-            <!-- Direct op Gezien zetten met cijfer 1-10 -->
             <div class="bg-black/30 rounded-xl p-3 border border-white/10 space-y-2">
               <div class="flex justify-between text-xs">
                 <span class="text-gray-300">⭐ Al gezien? Geef direct jouw cijfer:</span>
@@ -633,7 +635,6 @@
       activePopupMovie = null;
     }
 
-    // --- SMAAKPROFIEL & FILTERS ---
     function updateTasteProfile() {
       const watched = allFilms.filter(f => f.status === "watched");
       const scores = watched.map(f => Number(f.rating)).filter(n => !isNaN(n) && n > 0);
@@ -651,8 +652,7 @@
 
     function updateDateMovieDropdown() {
       const biosList = allFilms.filter(f => f.status === "bios");
-      const sel = document.getElementById("dateMovieSelect");
-      sel.innerHTML = `<option value="">Nog te bepalen</option>` +
+      document.getElementById("dateMovieSelect").innerHTML = `<option value="">Nog te bepalen</option>` +
         biosList.map(f => `<option value="${f.title}">${f.title} (${f.year || ""})</option>`).join("");
     }
 
@@ -689,7 +689,6 @@
         btn.className = "tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300";
       });
       document.getElementById(`tab-${tab}`).className = "tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-amber-500 text-black";
-
       const filterBtn = document.getElementById("filterToggleBtn");
       if (tab === "watched") {
         filterBtn.classList.remove("hidden");
@@ -719,7 +718,6 @@
       const friendRatings = { ...(f?.friend_ratings || {}), [user]: score };
       const vals = Object.values(friendRatings).map(Number).filter(n => !isNaN(n));
       const avg = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : score;
-
       await db.from("films").update({ rating: avg, friend_ratings: friendRatings, status: "watched" }).eq("id", id);
       loadFilms();
     }
@@ -758,7 +756,7 @@
 
       const grid = document.getElementById("filmsGrid");
       if (!list.length) {
-        grid.innerHTML = `<p class="text-sm text-gray-500 col-span-full">Nog geen films in deze lijst. Gebruik de TMDB-zoekbalk hierboven om een film op te zoeken!</p>`;
+        grid.innerHTML = `<p class="text-sm text-gray-500 col-span-full">Nog geen films in deze lijst. Gebruik de TMDB-zoekbalk hierboven!</p>`;
         return;
       }
 
@@ -824,7 +822,7 @@
                 </div>
                 <div class="mt-2 flex items-center justify-between text-xs">
                   <span class="${others.length && currentTab === "watchlist" ? "text-amber-300" : "text-gray-400"}">${overlapLine}</span>
-                  <span class="text-amber-400/80 text-[11px]">Details & opties →</span>
+                  <span class="text-amber-400/80 text-[11px]">Details →</span>
                 </div>
               </div>
             </div>
