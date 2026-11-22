@@ -26,6 +26,17 @@
   </header>
 
   <main class="max-w-3xl mx-auto px-4 space-y-8">
+    <!-- Vastgepinde eerstvolgende bioscoopavond -->
+    <section id="pinnedSection" class="hidden">
+      <div class="glass rounded-2xl p-4 border border-amber-400/40 bg-amber-500/10 space-y-2">
+        <div class="flex items-center justify-between">
+          <span class="text-[11px] uppercase tracking-wider font-semibold text-amber-400">📌 Eerstvolgende bioscoopavond</span>
+          <button onclick="unpinCurrent()" class="text-xs text-gray-400 hover:text-white">Losmaken</button>
+        </div>
+        <div id="pinnedContent"></div>
+      </div>
+    </section>
+
     <!-- Datumprikker -->
     <section>
       <div class="flex items-center justify-between mb-3">
@@ -39,18 +50,71 @@
       </div>
     </section>
 
-    <!-- Tabs voor Films -->
-    <section>
-      <div class="flex gap-2 border-b border-white/10 pb-3 mb-4 overflow-x-auto">
-        <button onclick="switchTab('bios')" id="tab-bios" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-amber-500 text-black">
-          🎟️ Bios-kandidaten
+    <!-- Punt 9: Live Smaakprofiel -->
+    <section class="glass rounded-xl px-4 py-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div>
+        <span class="text-amber-400 font-semibold">✨ Groepssmaakprofiel:</span>
+        <span id="tasteAvg" class="text-gray-300 ml-1">Laden...</span>
+      </div>
+      <div id="tasteGenres" class="text-gray-400"></div>
+    </section>
+
+    <!-- Punt 8: Zoek/Toevoegbalk, Tabs & Gezien-filters -->
+    <section class="space-y-4">
+      <form onsubmit="handleSearchOrAdd(event)" class="flex flex-col sm:flex-row gap-2">
+        <input
+          type="text"
+          id="filmSearchInput"
+          oninput="renderFilms()"
+          placeholder="Zoek op titel, regisseur, cast of typ een nieuwe titel om toe te voegen..."
+          class="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-400"
+        />
+        <button type="submit" id="addFilmBtn" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-semibold shrink-0">
+          + Zet op Bios-kandidaten
         </button>
-        <button onclick="switchTab('watchlist')" id="tab-watchlist" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300">
-          📺 Thuis Watchlist
+      </form>
+
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 pb-3">
+        <div class="flex gap-2 overflow-x-auto">
+          <button onclick="switchTab('bios')" id="tab-bios" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-amber-500 text-black">
+            🎟️ Bios-kandidaten
+          </button>
+          <button onclick="switchTab('watchlist')" id="tab-watchlist" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300">
+            📺 Thuis Watchlist
+          </button>
+          <button onclick="switchTab('watched')" id="tab-watched" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300">
+            ⭐ Gezien
+          </button>
+        </div>
+
+        <button onclick="toggleFilterPanel()" id="filterToggleBtn" class="hidden px-3 py-1.5 rounded-lg text-xs bg-white/10 hover:bg-white/20 text-gray-200">
+          🎛️ Filters <span id="filterCountBadge" class="hidden ml-1 px-1.5 rounded-full bg-amber-500 text-black font-bold">0</span>
         </button>
-        <button onclick="switchTab('watched')" id="tab-watched" class="tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300">
-          ⭐ Gezien
-        </button>
+      </div>
+
+      <!-- Inklapbaar Filterpaneel voor 'Gezien' -->
+      <div id="gezienFilterPanel" class="hidden glass rounded-xl p-4 space-y-3">
+        <div class="flex items-center justify-between text-xs">
+          <span class="font-semibold text-white">Filter geziene films</span>
+          <button onclick="clearFilters()" class="text-amber-400 hover:underline">Wis filters</button>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+          <select id="filterDirector" onchange="renderFilms()" class="bg-[#0b0d13] border border-white/10 rounded-lg px-3 py-2 text-white">
+            <option value="">Alle regisseurs</option>
+          </select>
+          <select id="filterYear" onchange="renderFilms()" class="bg-[#0b0d13] border border-white/10 rounded-lg px-3 py-2 text-white">
+            <option value="">Alle jaartallen</option>
+          </select>
+          <select id="filterGenre" onchange="renderFilms()" class="bg-[#0b0d13] border border-white/10 rounded-lg px-3 py-2 text-white">
+            <option value="">Alle genres</option>
+          </select>
+          <select id="filterSubgenre" onchange="renderFilms()" class="bg-[#0b0d13] border border-white/10 rounded-lg px-3 py-2 text-white">
+            <option value="">Alle subgenres</option>
+          </select>
+          <select id="filterCast" onchange="renderFilms()" class="bg-[#0b0d13] border border-white/10 rounded-lg px-3 py-2 text-white sm:col-span-2">
+            <option value="">Alle acteurs</option>
+          </select>
+        </div>
       </div>
 
       <div id="filmsGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -59,6 +123,21 @@
     </section>
   </main>
 
+  <!-- Punt 2 & 3: Modal voor Trailer & Spoilervrije AI Sfeer -->
+  <div id="filmModal" class="hidden fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4" onclick="closeModal()">
+    <div class="glass rounded-2xl max-w-lg w-full p-5 space-y-4 border border-white/15" onclick="event.stopPropagation()">
+      <div class="flex items-start justify-between gap-3 border-b border-white/10 pb-3">
+        <div>
+          <p id="modalSubtitle" class="text-[11px] uppercase tracking-wider text-amber-400"></p>
+          <h3 id="modalTitle" class="text-lg font-bold text-white"></h3>
+          <p id="modalMeta" class="text-xs text-gray-400"></p>
+        </div>
+        <button onclick="closeModal()" class="text-gray-400 hover:text-white text-lg px-2">✕</button>
+      </div>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
   <script>
     const SUPABASE_URL = "https://crvqmgtdamyumzqfrdeg.supabase.co";
     const SUPABASE_ANON_KEY = "sb_publishable_OihUeCOMFpOGjOGzWVoqgQ_QksmCFyC";
@@ -66,17 +145,21 @@
 
     let currentTab = "bios";
     let userName = localStorage.getItem("cinekring_user") || "";
+    let pinnedId = null;
+    let allFilms = [];
+    let filtersOpen = false;
 
     function updateUserBadge() {
       document.getElementById("userBadge").textContent = userName ? `👤 ${userName}` : "👤 Naam instellen";
     }
 
     function setUserName() {
-      const name = prompt("Wat is je voornaam (voor stemmen & cijfers)?", userName);
+      const name = prompt("Wat is je voornaam (voor stemmen, watchlist & cijfers)?", userName);
       if (name && name.trim()) {
         userName = name.trim();
         localStorage.setItem("cinekring_user", userName);
         updateUserBadge();
+        renderFilms();
       }
     }
 
@@ -85,27 +168,64 @@
       return userName || "Vriend";
     }
 
+    function renderPinnedCard(d) {
+      const section = document.getElementById("pinnedSection");
+      if (!d) {
+        section.classList.add("hidden");
+        pinnedId = null;
+        return;
+      }
+      pinnedId = d.id;
+      section.classList.remove("hidden");
+      const votes = d.votes || {};
+      const going = Object.entries(votes).filter(([, v]) => v === "✅").map(([k]) => k);
+
+      document.getElementById("pinnedContent").innerHTML = `
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div class="space-y-1">
+            <div class="font-bold text-white text-base">${d.movie_title || "Film nog kiezen"} <span class="text-xs font-normal text-amber-300">• ${d.cinema || "Arnhem"}</span></div>
+            <div class="text-xs text-gray-300">📅 ${d.date_label} • 👥 Mee (${going.length}): ${going.length ? going.join(", ") : "Nog niemand"}</div>
+            <div class="text-xs ${d.ticket_buyer ? "text-emerald-300 font-medium" : "text-gray-400"}">
+              ${d.ticket_buyer ? `🎟️ Kaartjes gehaald door ${d.ticket_buyer}` : "🎟️ Kaartjes nog niet gehaald"}
+            </div>
+          </div>
+          <button onclick="toggleTickets(${d.id}, '${(d.ticket_buyer || "").replace(/'/g, "\\'")}')" class="px-3 py-1.5 rounded-lg text-xs font-medium shrink-0 ${d.ticket_buyer ? "bg-emerald-500/20 text-emerald-300" : "bg-amber-500 text-black font-semibold"}">
+            ${d.ticket_buyer ? `✓ ${d.ticket_buyer} haalt kaartjes` : "🎟️ Ik haal kaartjes"}
+          </button>
+        </div>
+      `;
+    }
+
     async function loadDates() {
       const { data, error } = await db.from("dates").select("*").order("id", { ascending: false }).limit(10);
       const container = document.getElementById("datesList");
       if (error || !data?.length) {
+        renderPinnedCard(null);
         container.innerHTML = `<p class="text-sm text-gray-500">Nog geen datums voorgesteld. Vraag de Telegram-bot of tik op + Datum.</p>`;
         return;
       }
+
+      const pinned = data.find(d => d.pinned) || null;
+      renderPinnedCard(pinned);
+
       container.innerHTML = data.map(d => {
         const votes = d.votes || {};
         const voteSummary = Object.entries(votes).map(([k, v]) => `<span class="bg-white/5 px-2 py-0.5 rounded text-xs">${k} ${v}</span>`).join(" ");
         return `
           <div class="glass rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
-              <div class="font-semibold text-amber-300">${d.date_label}</div>
-              ${d.movie_title ? `<div class="text-xs text-gray-400">🎬 ${d.movie_title}</div>` : ""}
+              <div class="flex items-center gap-2">
+                <span class="font-semibold text-amber-300">${d.date_label}</span>
+                ${d.pinned ? '<span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300">📌 Vastgezet</span>' : ""}
+              </div>
+              <div class="text-xs text-gray-400">${d.cinema || "Focus / Vue Arnhem"}${d.movie_title ? ` • 🎬 ${d.movie_title}` : ""}</div>
               <div class="flex flex-wrap gap-1.5 mt-2">${voteSummary || '<span class="text-xs text-gray-500">Nog geen stemmen</span>'}</div>
             </div>
-            <div class="flex gap-1.5 shrink-0">
+            <div class="flex flex-wrap gap-1.5 shrink-0">
               <button onclick="voteDate(${d.id}, '✅')" class="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-xs font-medium">✅ Ja</button>
               <button onclick="voteDate(${d.id}, '🤔')" class="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-xs font-medium">🤔 Misschien</button>
               <button onclick="voteDate(${d.id}, '❌')" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs font-medium">❌ Nee</button>
+              ${!d.pinned ? `<button onclick="pinDate(${d.id})" class="px-2.5 py-1.5 rounded-lg bg-white/10 hover:bg-white/20 text-gray-200 text-xs">📌 Zet vast</button>` : ""}
             </div>
           </div>
         `;
@@ -120,6 +240,25 @@
       loadDates();
     }
 
+    async function pinDate(id) {
+      await db.from("dates").update({ pinned: false }).neq("id", id);
+      await db.from("dates").update({ pinned: true }).eq("id", id);
+      loadDates();
+    }
+
+    async function unpinCurrent() {
+      if (!pinnedId) return;
+      await db.from("dates").update({ pinned: false }).eq("id", pinnedId);
+      loadDates();
+    }
+
+    async function toggleTickets(id, currentBuyer) {
+      const user = ensureUser();
+      const nextBuyer = currentBuyer === user ? null : user;
+      await db.from("dates").update({ ticket_buyer: nextBuyer }).eq("id", id);
+      loadDates();
+    }
+
     async function addDatePrompt() {
       const label = prompt("Welke datum & tijd? (bijv. Vr 27 nov • 20:15 Focus)");
       if (!label) return;
@@ -128,48 +267,193 @@
       loadDates();
     }
 
+    // Punt 9: Live Smaakprofiel
+    function updateTasteProfile() {
+      const watched = allFilms.filter(f => f.status === "watched");
+      const scores = watched.map(f => Number(f.rating)).filter(n => !isNaN(n) && n > 0);
+      const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "—";
+      const top = watched.filter(f => Number(f.rating) >= 8);
+      const src = top.length ? top : watched;
+      const genres = [...new Set(src.map(f => f.genre).filter(Boolean))].slice(0, 3);
+      const directors = [...new Set(src.map(f => f.director).filter(Boolean))].slice(0, 2);
+
+      document.getElementById("tasteAvg").textContent = `Gem. ${avg}/10 (${watched.length} gezien)`;
+      document.getElementById("tasteGenres").textContent = genres.length
+        ? `Top: ${genres.join(" • ")}${directors.length ? ` (${directors.join(", ")})` : ""}`
+        : "";
+    }
+
+    // Punt 8: Gezien-filters
+    function populateGezienFilters() {
+      const watched = allFilms.filter(f => f.status === "watched");
+      const fill = (id, label, vals) => {
+        const el = document.getElementById(id);
+        const cur = el.value;
+        el.innerHTML = `<option value="">${label}</option>` + vals.map(v => `<option value="${v}">${v}</option>`).join("");
+        if (vals.includes(cur)) el.value = cur;
+      };
+      fill("filterDirector", "Alle regisseurs", [...new Set(watched.map(f => f.director).filter(Boolean))].sort());
+      fill("filterYear", "Alle jaartallen", [...new Set(watched.map(f => String(f.year || "")).filter(Boolean))].sort((a, b) => b - a));
+      fill("filterGenre", "Alle genres", [...new Set(watched.map(f => f.genre).filter(Boolean))].sort());
+      fill("filterSubgenre", "Alle subgenres", [...new Set(watched.map(f => f.subgenre).filter(Boolean))].sort());
+      const actors = [...new Set(watched.flatMap(f => (f.cast_members || "").split(",").map(s => s.trim()).filter(Boolean)))].sort();
+      fill("filterCast", "Alle acteurs", actors);
+    }
+
+    function toggleFilterPanel() {
+      filtersOpen = !filtersOpen;
+      document.getElementById("gezienFilterPanel").classList.toggle("hidden", !filtersOpen);
+    }
+
+    function clearFilters() {
+      ["filterDirector", "filterYear", "filterGenre", "filterSubgenre", "filterCast"].forEach(id => {
+        document.getElementById(id).value = "";
+      });
+      renderFilms();
+    }
+
     function switchTab(tab) {
       currentTab = tab;
       document.querySelectorAll(".tab-btn").forEach(btn => {
         btn.className = "tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-white/10 text-gray-300";
       });
       document.getElementById(`tab-${tab}`).className = "tab-btn px-4 py-1.5 rounded-full text-sm font-medium bg-amber-500 text-black";
+
+      const labels = { bios: "+ Zet op Bios-kandidaten", watchlist: "+ Zet op Thuis Watchlist", watched: "+ Zet op Gezien" };
+      document.getElementById("addFilmBtn").textContent = labels[tab];
+
+      const filterBtn = document.getElementById("filterToggleBtn");
+      if (tab === "watched") {
+        filterBtn.classList.remove("hidden");
+      } else {
+        filterBtn.classList.add("hidden");
+        document.getElementById("gezienFilterPanel").classList.add("hidden");
+        filtersOpen = false;
+      }
+      renderFilms();
+    }
+
+    async function handleSearchOrAdd(e) {
+      e.preventDefault();
+      const input = document.getElementById("filmSearchInput");
+      const title = input.value.trim();
+      if (!title) return;
+
+      const user = ensureUser();
+      const existing = allFilms.find(f => f.title.toLowerCase() === title.toLowerCase());
+      if (existing) {
+        const voters = Array.isArray(existing.voters) ? existing.voters : [];
+        const nextVoters = voters.includes(user) ? voters : [...voters, user];
+        await db.from("films").update({ status: currentTab, voters: nextVoters }).eq("id", existing.id);
+      } else {
+        const director = prompt(`Regisseur van "${title}" (optioneel):`) || "";
+        const year = prompt(`Jaartal van "${title}" (optioneel):`, "2025") || "";
+        const genre = prompt(`Genre (bijv. Drama, Thriller, Sci-Fi, Actie):`, "Drama") || "Drama";
+        await db.from("films").insert({ title, director, year, genre, status: currentTab, added_by: user, voters: [user] });
+      }
+      input.value = "";
       loadFilms();
     }
 
-    async function loadFilms() {
-      const { data, error } = await db.from("films").select("*").eq("status", currentTab).order("id", { ascending: false });
-      const grid = document.getElementById("filmsGrid");
-      if (error || !data?.length) {
-        grid.innerHTML = `<p class="text-sm text-gray-500 col-span-full">Nog geen films in deze lijst. Voeg ze toe via de Telegram-bot!</p>`;
-        return;
-      }
-      grid.innerHTML = data.map(f => `
-        <div class="glass rounded-2xl overflow-hidden flex flex-col">
-          <div class="flex gap-3 p-3">
-            ${f.poster_url
-              ? `<img src="${f.poster_url}" alt="${f.title}" class="w-20 h-28 object-cover rounded-lg shrink-0 bg-gray-800" />`
-              : `<div class="w-20 h-28 rounded-lg bg-gray-800 flex items-center justify-center text-2xl shrink-0">🎬</div>`}
-            <div class="min-w-0 flex-1">
-              <h3 class="font-bold text-white leading-snug">${f.title} <span class="text-xs font-normal text-gray-400">(${f.year || ""})</span></h3>
-              <p class="text-xs text-amber-400/90 mt-0.5">${f.director || ""}</p>
-              <p class="text-xs text-gray-400 line-clamp-2 mt-1">${f.cast_members || ""}</p>
-              <div class="mt-2 flex items-center gap-2 text-xs text-gray-400">
-                <span>Door ${f.added_by || "Groep"}</span>
-                ${f.rating ? `<span class="text-amber-400 font-semibold">• ⭐ ${f.rating}/10</span>` : ""}
-              </div>
+    // Punt 10: Groepsoverlap ("Wil ik zien")
+    async function toggleWantToSee(id) {
+      const user = ensureUser();
+      const f = allFilms.find(item => item.id === id);
+      if (!f) return;
+      const base = Array.isArray(f.voters) ? f.voters : (f.added_by ? [f.added_by] : []);
+      const updated = base.includes(user) ? base.filter(v => v !== user) : [...base, user];
+      await db.from("films").update({ voters: updated }).eq("id", id);
+      loadFilms();
+    }
+
+    // Punt 9: 1 t/m 10 cijferbalk
+    async function rateFilmDirect(id, score) {
+      const user = ensureUser();
+      const f = allFilms.find(item => item.id === id);
+      const friendRatings = { ...(f?.friend_ratings || {}), [user]: score };
+      const vals = Object.values(friendRatings).map(Number).filter(n => !isNaN(n));
+      const avg = vals.length ? Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10 : score;
+
+      await db.from("films").update({ rating: avg, friend_ratings: friendRatings, status: "watched" }).eq("id", id);
+      if (currentTab !== "watched") switchTab("watched");
+      else loadFilms();
+    }
+
+    // Punt 2 & 3: Ingebouwde Trailer & Spoilervrije AI Sfeer modal
+    function getYoutubeId(url) {
+      if (!url) return null;
+      const m = url.match(/(?:v=|youtu\.be\/|embed\/)([a-zA-Z0-9_-]{11})/);
+      return m ? m[1] : null;
+    }
+
+    function openTrailerModal(id) {
+      const f = allFilms.find(item => item.id === id);
+      if (!f) return;
+      const ytId = getYoutubeId(f.trailer_url);
+      const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(f.title + " " + (f.year || "") + " official trailer")}`;
+
+      document.getElementById("modalSubtitle").textContent = "Officiële Trailer";
+      document.getElementById("modalTitle").textContent = `${f.title} ${f.year ? `(${f.year})` : ""}`;
+      document.getElementById("modalMeta").textContent = f.director || "";
+
+      document.getElementById("modalBody").innerHTML = ytId
+        ? `<div class="space-y-3">
+            <div class="aspect-video rounded-xl overflow-hidden bg-black">
+              <iframe class="w-full h-full" src="https://www.youtube-nocookie.com/embed/${ytId}?rel=0" allowfullscreen></iframe>
             </div>
+            <div class="flex justify-between text-xs">
+              <button onclick="openSfeerModal(${f.id})" class="text-amber-400 hover:underline">✨ Liever eerst AI Sfeer →</button>
+              <a href="${f.trailer_url}" target="_blank" class="text-gray-400 hover:text-white">YouTube ↗</a>
+            </div>
+          </div>`
+        : `<div class="text-center py-6 space-y-3">
+            <p class="text-sm text-gray-400">Geen directe video-embed gevonden voor ${f.title}.</p>
+            <a href="${searchUrl}" target="_blank" class="inline-block px-4 py-2 rounded-lg bg-amber-500 text-black text-xs font-semibold">▶ Zoek trailer op YouTube</a>
+          </div>`;
+      document.getElementById("filmModal").classList.remove("hidden");
+    }
+
+    function openSfeerModal(id) {
+      const f = allFilms.find(item => item.id === id);
+      if (!f) return;
+      const s = f.ai_sfeer || {};
+      const atmosphere = s.atmosphere || `Een ${f.genre || "film"}-titel geregisseerd door ${f.director || "een veelgeprezen maker"}${f.cast_members ? ` met o.a. ${f.cast_members}` : ""}.`;
+      const pacing = s.pacing || `${f.duration || "Speelfilm"} • ${f.genre || "Cinema"}${f.subgenre ? ` (${f.subgenre})` : ""}`;
+      const forFansOf = s.forFansOf || `Liefhebbers van ${f.director || f.genre || "sterke cinema"} en kwaliteitstitels in Focus of Vue Arnhem.`;
+
+      document.getElementById("modalSubtitle").textContent = "Spoilervrije AI Sfeer";
+      document.getElementById("modalTitle").textContent = `${f.title} ${f.year ? `(${f.year})` : ""}`;
+      document.getElementById("modalMeta").textContent = `${f.director || ""}${f.cast_members ? ` • ${f.cast_members}` : ""}`;
+
+      document.getElementById("modalBody").innerHTML = `
+        <div class="space-y-3 text-sm">
+          <div>
+            <h4 class="text-xs text-gray-400">De sfeer in 2 zinnen</h4>
+            <p class="text-gray-100 mt-0.5">${atmosphere}</p>
           </div>
-          <div class="mt-auto border-t border-white/10 px-3 py-2 flex items-center justify-between gap-2 bg-black/20 text-xs">
-            ${f.trailer_url ? `<a href="${f.trailer_url}" target="_blank" class="text-amber-400 hover:underline">▶ Trailer</a>` : `<span></span>`}
+          <div>
+            <h4 class="text-xs text-gray-400">Tempo & Lengte</h4>
+            <p class="text-gray-100 mt-0.5">${pacing}</p>
+          </div>
+          <div>
+            <h4 class="text-xs text-gray-400">Geschikt als je houdt van...</h4>
+            <p class="text-gray-100 mt-0.5">${forFansOf}</p>
+          </div>
+          <div class="pt-3 border-t border-white/10 flex justify-between items-center text-xs">
+            <button onclick="openTrailerModal(${f.id})" class="text-amber-400 hover:underline">▶ Bekijk trailer</button>
             <div class="flex gap-1.5">
-              ${currentTab !== "bios" ? `<button onclick="moveFilm(${f.id}, 'bios')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20">🎟️ Bios</button>` : ""}
-              ${currentTab !== "watchlist" ? `<button onclick="moveFilm(${f.id}, 'watchlist')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20">📺 Thuis</button>` : ""}
-              <button onclick="rateFilm(${f.id}, '${f.title.replace(/'/g, "\\'")}')" class="px-2 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30">⭐ Cijfer</button>
+              <button onclick="moveFilm(${f.id}, 'watchlist'); closeModal();" class="px-2.5 py-1 rounded bg-white/10">📺 Thuis</button>
+              <button onclick="moveFilm(${f.id}, 'bios'); closeModal();" class="px-2.5 py-1 rounded bg-amber-500 text-black font-semibold">🎟️ Bios</button>
             </div>
           </div>
         </div>
-      `).join("");
+      `;
+      document.getElementById("filmModal").classList.remove("hidden");
+    }
+
+    function closeModal() {
+      document.getElementById("filmModal").classList.add("hidden");
+      document.getElementById("modalBody").innerHTML = "";
     }
 
     async function moveFilm(id, newStatus) {
@@ -177,12 +461,127 @@
       loadFilms();
     }
 
-    async function rateFilm(id, title) {
-      const score = prompt(`Welk cijfer (1 t/m 10) geef je ${title}?`);
-      const num = parseFloat(score?.replace(",", "."));
-      if (!num || num < 1 || num > 10) return;
-      await db.from("films").update({ rating: num, status: "watched" }).eq("id", id);
-      switchTab("watched");
+    async function loadFilms() {
+      const { data, error } = await db.from("films").select("*").order("id", { ascending: false });
+      if (error) return;
+      allFilms = data || [];
+      updateTasteProfile();
+      populateGezienFilters();
+      renderFilms();
+    }
+
+    function renderFilms() {
+      const q = document.getElementById("filmSearchInput").value.trim().toLowerCase();
+      const fDir = document.getElementById("filterDirector").value;
+      const fYear = document.getElementById("filterYear").value;
+      const fGenre = document.getElementById("filterGenre").value;
+      const fSub = document.getElementById("filterSubgenre").value;
+      const fCast = document.getElementById("filterCast").value;
+
+      const activeFilters = [fDir, fYear, fGenre, fSub, fCast].filter(Boolean).length;
+      const badge = document.getElementById("filterCountBadge");
+      badge.textContent = activeFilters;
+      badge.classList.toggle("hidden", activeFilters === 0);
+
+      const list = allFilms.filter(f => {
+        if (f.status !== currentTab) return false;
+        if (q) {
+          const hay = `${f.title} ${f.director || ""} ${f.genre || ""} ${f.subgenre || ""} ${f.cast_members || ""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        if (currentTab === "watched") {
+          if (fDir && f.director !== fDir) return false;
+          if (fYear && String(f.year || "") !== fYear) return false;
+          if (fGenre && f.genre !== fGenre) return false;
+          if (fSub && f.subgenre !== fSub) return false;
+          if (fCast && !(f.cast_members || "").includes(fCast)) return false;
+        }
+        return true;
+      });
+
+      const grid = document.getElementById("filmsGrid");
+      if (!list.length) {
+        grid.innerHTML = `<p class="text-sm text-gray-500 col-span-full">Nog geen films in deze lijst. Voeg ze toe via de zoekbalk hierboven of via de Telegram-bot!</p>`;
+        return;
+      }
+
+      grid.innerHTML = list.map(f => {
+        const voters = Array.isArray(f.voters) && f.voters.length ? f.voters : (f.added_by ? [f.added_by] : []);
+        const iWantIt = userName && voters.includes(userName);
+        const others = voters.filter(v => v !== userName);
+
+        if (currentTab === "watched") {
+          const friendRatings = f.friend_ratings || {};
+          const myScore = userName ? friendRatings[userName] : null;
+          const breakdown = Object.entries(friendRatings).map(([k, v]) => `${k}: ${v}`).join(" • ");
+
+          return `
+            <div class="glass rounded-2xl p-3.5 flex flex-col justify-between gap-3">
+              <div class="flex gap-3">
+                ${f.poster_url
+                  ? `<img src="${f.poster_url}" alt="${f.title}" class="w-16 h-24 object-cover rounded-lg shrink-0 bg-gray-800" />`
+                  : `<div class="w-16 h-24 rounded-lg bg-gray-800 flex items-center justify-center text-xl shrink-0">🎬</div>`}
+                <div class="min-w-0 flex-1">
+                  <h3 class="font-bold text-white leading-snug">${f.title} <span class="text-xs font-normal text-gray-400">(${f.year || ""})</span></h3>
+                  <p class="text-xs text-amber-400/90 mt-0.5">${f.director || ""}${f.genre ? ` • ${f.genre}` : ""}</p>
+                  <p class="text-xs text-gray-400 line-clamp-1 mt-0.5">${f.cast_members || ""}</p>
+                  <div class="mt-1.5 text-xs text-amber-400 font-semibold">
+                    ⭐ ${f.rating ? `${f.rating}/10` : "Nog geen cijfer"}
+                    ${breakdown ? `<span class="text-gray-400 font-normal ml-1">(${breakdown})</span>` : ""}
+                  </div>
+                </div>
+              </div>
+              <div class="border-t border-white/10 pt-2">
+                <div class="grid grid-cols-10 gap-1 bg-black/30 p-1 rounded-lg">
+                  ${[1,2,3,4,5,6,7,8,9,10].map(n => `
+                    <button onclick="rateFilmDirect(${f.id}, ${n})" class="py-1 rounded text-[11px] ${Number(myScore) === n ? "bg-amber-500 text-black font-bold" : "text-gray-400 hover:text-white hover:bg-white/10"}">
+                      ${n}
+                    </button>
+                  `).join("")}
+                </div>
+              </div>
+            </div>
+          `;
+        }
+
+        const overlapLine = currentTab === "watchlist"
+          ? (others.length ? `👥 ${others.join(" & ")} ${others.length === 1 ? "wil" : "willen"} deze ook zien` : `Door ${voters.join(", ") || "Groep"}`)
+          : `👥 ${voters.join(", ") || "Groep"} (${voters.length})`;
+
+        return `
+          <div class="glass rounded-2xl overflow-hidden flex flex-col">
+            <div class="flex gap-3 p-3">
+              ${f.poster_url
+                ? `<img src="${f.poster_url}" alt="${f.title}" class="w-20 h-28 object-cover rounded-lg shrink-0 bg-gray-800" />`
+                : `<div class="w-20 h-28 rounded-lg bg-gray-800 flex items-center justify-center text-2xl shrink-0">🎬</div>`}
+              <div class="min-w-0 flex-1">
+                <div class="flex items-start justify-between gap-1.5">
+                  <h3 class="font-bold text-white leading-snug">${f.title} <span class="text-xs font-normal text-gray-400">(${f.year || ""})</span></h3>
+                  <button onclick="toggleWantToSee(${f.id})" class="px-2 py-0.5 rounded text-[11px] shrink-0 ${iWantIt ? "bg-amber-500/20 text-amber-300 border border-amber-400/40" : "bg-white/10 text-gray-300 hover:bg-white/20"}">
+                    ${iWantIt ? "✓ Wil ik zien" : "Wil ik zien"}
+                  </button>
+                </div>
+                <p class="text-xs text-amber-400/90 mt-0.5">${f.director || ""}</p>
+                <p class="text-xs text-gray-400 line-clamp-2 mt-1">${f.cast_members || ""}</p>
+                <div class="mt-2 text-xs ${others.length && currentTab === "watchlist" ? "text-amber-300" : "text-gray-400"}">
+                  ${overlapLine}
+                </div>
+              </div>
+            </div>
+            <div class="mt-auto border-t border-white/10 px-3 py-2 flex items-center justify-between gap-2 bg-black/20 text-xs">
+              <div class="flex items-center gap-2.5">
+                <button onclick="openTrailerModal(${f.id})" class="text-amber-400 hover:underline">▶ Trailer</button>
+                <button onclick="openSfeerModal(${f.id})" class="text-gray-300 hover:text-amber-300">✨ AI Sfeer</button>
+              </div>
+              <div class="flex gap-1.5">
+                ${currentTab !== "bios" ? `<button onclick="moveFilm(${f.id}, 'bios')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20">🎟️ Bios</button>` : ""}
+                ${currentTab !== "watchlist" ? `<button onclick="moveFilm(${f.id}, 'watchlist')" class="px-2 py-1 rounded bg-white/10 hover:bg-white/20">📺 Thuis</button>` : ""}
+                <button onclick="moveFilm(${f.id}, 'watched')" class="px-2 py-1 rounded bg-amber-500/20 text-amber-300 hover:bg-amber-500/30">⭐ Gezien</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join("");
     }
 
     updateUserBadge();
