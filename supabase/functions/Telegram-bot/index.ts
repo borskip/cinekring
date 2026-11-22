@@ -36,7 +36,7 @@ async function updatePinnedSummary(chatId: number | string, row: any) {
   const text = [
     `📌 *EERSTVOLGENDE BIOSCOOPAVOND*`,
     `🎬 *Film:* ${row.movie_title || "Nog te kiezen"}`,
-    `📍 *Bioscoop:* ${row.cinema || "Focus / Vue Arnhem"}`,
+    `📍 *Bioscoop:* ${row.cinema || "Pathé / Vue / LUX Nijmegen"}`,
     `📅 *Wanneer:* ${row.date_label}`,
     `👥 *Mee (${going.length}):* ${going.length ? going.join(", ") : "Nog niemand"}`,
     ticketText,
@@ -107,11 +107,11 @@ async function searchTMDB(query: string) {
   };
 }
 
-// Bepaalt of een groepsbericht mogelijk over films/bios/datums gaat (voorkomt trage Google Search bij koetjes en kalfjes)
+// Bepaalt of een groepsbericht mogelijk over films/bios/datums gaat
 function needsMovieContext(text: string): boolean {
   const lower = text.toLowerCase();
   const triggers = [
-    "film", "bios", "focus", "vue", "arnhem", "kijken", "trailer", "draait",
+    "film", "bios", "pathe", "pathé", "vue", "lux", "nijmegen", "kijken", "trailer", "draait",
     "datum", "wanneer", "kaartje", "tickets", "watchlist", "aanrader", "tip",
     "regisseur", "acteur", "cinekring", "bot", "cinema", "avond", "vrijdag",
     "zaterdag", "zondag", "donderdag", "woensdag", "dinsdag", "maandag",
@@ -132,7 +132,6 @@ Deno.serve(async (req) => {
       const [action, ...rest] = cb.data.split(":");
       const payload = rest.join(":");
 
-      // Bevestig klik direct zodat de laadspinner op de knop meteen stopt
       await answerCallback(cb.id);
 
       if (action === "add_watchlist" || action === "add_bios") {
@@ -202,14 +201,12 @@ Deno.serve(async (req) => {
       return new Response("ok");
     }
 
-    // Sla chatbericht parallel op terwijl we historie & smaakprofiel ophalen
     const [, { data: history }, { data: topFilms }] = await Promise.all([
       supabase.from("chat_history").insert({ chat_id: chatId, sender, message: msg.text }),
       supabase.from("chat_history").select("sender, message").eq("chat_id", chatId).order("id", { ascending: false }).limit(5),
       supabase.from("films").select("title, director, rating, status").order("rating", { ascending: false }).limit(10),
     ]);
 
-    // In groepschat: als het bericht duidelijk niet over films/datums/bios gaat, direct stoppen (0 ms wachttijd)
     if (isGroup && !needsMovieContext(msg.text)) {
       return new Response("ok");
     }
@@ -217,12 +214,12 @@ Deno.serve(async (req) => {
     const recentChat = (history || []).reverse().map((h) => `${h.sender}: ${h.message}`).join("\n");
     const tasteProfile = (topFilms || []).map((f) => `${f.title} (${f.director}, ${f.status}${f.rating ? `, ${f.rating}/10` : ""})`).join("; ");
 
-    const systemPrompt = `Je bent CineKringBot voor een vriendengroep in Arnhem (Focus Filmtheater Arnhem & Vue Arnhem).
-Vandaag is het: ${today}. Gebruik Google Search voor actuele films, releases en draaitijden in Arnhem.
+    const systemPrompt = `Je bent CineKringBot voor een vriendengroep in Nijmegen. Focus UITSLUITEND op deze drie bioscopen: Pathé Nijmegen, Vue Nijmegen en LUX Nijmegen (negeer andere steden zoals Arnhem).
+Vandaag is het: ${today}. Gebruik Google Search voor actuele films, releases en draaitijden in Pathé Nijmegen, Vue Nijmegen en LUX Nijmegen.
 Modus: ${isGroup ? "GROEPSCHAT (Stille Butler: reageer ALLEEN bij films, bios, datums of jouw naam. Anders exact: SILENT)" : "1-OP-1 PRIVÉCURATOR"}.
 Smaakprofiel: ${tasteProfile || "Nog geen films beoordeeld."}
 
-BELANGRIJKE OPMAARREGELS:
+BELANGRIJKE OPMAAKREGELS:
 1. Beantwoord ALLEEN de laatste vraag, herhaal GEEN oude onderwerpen uit eerdere berichten.
 2. Houd "intro" ULTRAKORT (max. 1 à 2 zinnen). Zet de films NIET uitgeschreven in "intro", maar zet ze in de "movies"-lijst!
 3. Zet maximaal 5 films in "movies".
@@ -233,13 +230,13 @@ Antwoord UITSLUITEND met geldig JSON:
   "movies": [
     {
       "query": "Exacte Engelse filmtitel voor TMDB",
-      "note": "1 korte zin waarom hij past of wanneer/waar in Arnhem hij draait"
+      "note": "1 korte zin waarom hij past en/of bij welke Nijmeegse bioscoop (Pathé, Vue of LUX) en hoe laat hij draait"
     }
   ],
-  "propose_date": "Datumlabel zoals 'Vr 27 nov • 20:15' of null"
+  "propose_date": "Datumlabel zoals 'Vr 27 nov • 20:15' of null",
+  "propose_cinema": "Pathé Nijmegen, Vue Nijmegen, LUX Nijmegen of null"
 }`;
 
-    // gemini-2.5-flash met thinkingBudget: 0 -> geen lange denktijd, wel volledige Google Search voor Arnhemse tijden
     const geminiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -258,7 +255,6 @@ Antwoord UITSLUITEND met geldig JSON:
 
     if (parsed.intro === "SILENT") return new Response("ok");
 
-    // Start parallel het ophalen van alle TMDB-filmkaarten terwijl we de intro alvast versturen
     const movieList = (parsed.movies || []).slice(0, 5);
     const tmdbPromise = Promise.all(
       movieList.map(async (item: any) => ({
@@ -268,9 +264,15 @@ Antwoord UITSLUITEND met geldig JSON:
     );
 
     if (parsed.propose_date) {
+      const cinemaLabel = parsed.propose_cinema || "Pathé / Vue / LUX Nijmegen";
       const { data: newDate } = await supabase
         .from("dates")
-        .insert({ date_label: parsed.propose_date, movie_title: parsed.movies?.[0]?.query || null, votes: { [sender]: "✅" } })
+        .insert({
+          date_label: parsed.propose_date,
+          cinema: cinemaLabel,
+          movie_title: parsed.movies?.[0]?.query || null,
+          votes: { [sender]: "✅" },
+        })
         .select()
         .single();
       const dateButtons = newDate
@@ -283,7 +285,7 @@ Antwoord UITSLUITEND met geldig JSON:
             [{ text: "📌 Zet datum vast bovenaan", callback_data: `pin:${newDate.id}` }],
           ]
         : undefined;
-      await sendTelegram(chatId, `${parsed.intro}\n\n📅 *Voorstel:* ${parsed.propose_date}`, dateButtons);
+      await sendTelegram(chatId, `${parsed.intro}\n\n📅 *Voorstel:* ${parsed.propose_date} (${cinemaLabel})`, dateButtons);
     } else if (parsed.intro) {
       await sendTelegram(chatId, parsed.intro);
     }
