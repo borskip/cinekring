@@ -7,6 +7,15 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 
 const MY_SUBS = ["HBO Max", "Prime Video", "Amazon Prime Video", "Netflix", "Disney Plus", "Disney+", "NPO", "NPO Plus", "NPO Start"];
 
+// 5 rondes met telkens 3 uiteenlopende bekende titels + 'Weet niet'
+const TASTE_ROUNDS = [
+  { label: "Ronde 1/5", options: ["Sicario", "Parasite", "The Grand Budapest Hotel"] },
+  { label: "Ronde 2/5", options: ["True Detective (S1)", "Severance", "The Bear"] },
+  { label: "Ronde 3/5", options: ["Dune: Part Two", "Anatomy of a Fall", "Knives Out"] },
+  { label: "Ronde 4/5", options: ["Chernobyl", "Fargo (Serie)", "Succession"] },
+  { label: "Ronde 5/5", options: ["No Country for Old Men", "Everything Everywhere All at Once", "Drive"] },
+];
+
 async function sendTelegram(chatId: number | string, text: string, buttons?: any[][]) {
   const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage`, {
     method: "POST",
@@ -30,7 +39,82 @@ async function answerCallback(callbackQueryId: string, text?: string) {
   });
 }
 
-// Leest X / Twitter linkjes uit via publieke oEmbed (geen X API-key nodig)
+// Slaat winnaar op in liked_anchors + updates smaakgeheugen
+async function recordTasteChoice(chatId: string, userName: string, chosen: string, rejected: string[]) {
+  const { data: prof } = await supabase.from("personal_profile").select("*").eq("chat_id", chatId).maybeSingle();
+  const prevAnchors: string[] = Array.isArray(prof?.liked_anchors) ? prof.liked_anchors : [];
+  const nextAnchors = [...new Set([...prevAnchors, chosen])].slice(-25);
+
+  const prevSummary = prof?.taste_summary || "";
+  const note = rejected.length
+    ? `Koos ${chosen} (boven ${rejected.join(" & ")})`
+    : `Spreekt aan: ${chosen}`;
+  const combined = `${prevSummary} | ${note}`.replace(/^ \| /, "").slice(-1000);
+
+  await supabase.from("personal_profile").upsert({
+    chat_id: chatId,
+    user_name: userName,
+    liked_anchors: nextAnchors,
+    taste_summary: combined,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+// Vertaalt alle gekozen winnaars naar één scherp Smaak-DNA aan het einde van de 5 rondes
+async function synthesizeTasteDNA(chatId: string, userName: string) {
+  const { data: prof } = await supabase.from("personal_profile").select("*").eq("chat_id", chatId).maybeSingle();
+  const anchors: string[] = Array.isArray(prof?.liked_anchors) ? prof.liked_anchors : [];
+
+  if (!anchors.length) {
+    await sendTelegram(chatId, `Je hebt alle rondes overgeslagen — geen probleem! Typ gewoon een paar titels die je goed vindt of probeer */vandaag*.`);
+    return;
+  }
+
+  const prompt = `Analyseer de film- en seriesmaak van ${userName} op basis van deze gekozen favorieten: ${anchors.join(", ")}.
+Eerdere keuzes/context: ${prof?.taste_summary || ""}.
+Schrijf in 3 krachtige, concrete Nederlandse zinnen zijn "Smaak-DNA" (welk tempo, welke spanning/toon, welke vertelstijl en welke thema's hem aantrekken, en wat hij minder zoekt). Geen opsommingstekens, direct bruikbaar als profiel.`;
+
+  const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${GEMINI_KEY}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+    }),
+  });
+
+  const data = await res.json();
+  const dna = (data.candidates?.[0]?.content?.parts?.[0]?.text || "").trim();
+
+  if (dna) {
+    await supabase.from("personal_profile").update({ taste_summary: dna }).eq("chat_id", chatId);
+  }
+
+  await sendTelegram(
+    chatId,
+    `🧬 *Jouw Smaak-DNA staat vast!*\n\n_${dna || anchors.join(", ")}_\n\n📌 *Jouw ankers:* ${anchors.slice(-6).join(" • ")}\n\nTyp */vandaag* om direct een persoonlijke tip op HBO Max, Prime, Netflix, Disney+ of NPO te krijgen!`
+  );
+}
+
+async function sendTasteRound(chatId: string, step: number, userName: string) {
+  const round = TASTE_ROUNDS[step];
+  if (!round) {
+    await synthesizeTasteDNA(chatId, userName);
+    return;
+  }
+
+  const buttons = round.options.map((title, idx) => [
+    { text: `🎬 ${title}`, callback_data: `pick:${step}|${idx}` },
+  ]);
+  buttons.push([{ text: "🤷 Weet niet / Overslaan", callback_data: `pick:${step}|skip` }]);
+
+  await sendTelegram(
+    chatId,
+    `🎯 *Smaak-test (${round.label})*\nWelke van deze drie spreekt jou het meeste aan?`,
+    buttons
+  );
+}
+
 async function extractXPostText(text: string): Promise<string | null> {
   const match = text.match(/https?:\/\/(?:www\.)?(?:x\.com|twitter\.com)\/[a-zA-Z0-9_]+\/status\/\d+/i);
   if (!match) return null;
@@ -45,7 +129,6 @@ async function extractXPostText(text: string): Promise<string | null> {
   }
 }
 
-// Zoekt film óf serie op TMDB + Nederlandse streamproviders (HBO, Prime, Netflix, Disney+, NPO)
 async function searchTMDB(query: string, preferredType: "movie" | "tv" | "multi" = "multi") {
   const endpoint = preferredType === "movie" ? "movie" : preferredType === "tv" ? "tv" : "multi";
   const searchRes = await fetch(
@@ -96,7 +179,6 @@ async function searchTMDB(query: string, preferredType: "movie" | "tv" | "multi"
   };
 }
 
-// Vastgepind groepsoverzicht (eerst gekozen film -> daarna pas dag/tijd voor Pathé/Vue/LUX Nijmegen)
 async function updatePinnedSummary(chatId: number | string, row: any) {
   const votes = row.votes || {};
   const going = Object.entries(votes).filter(([, v]) => v === "✅").map(([k]) => k);
@@ -147,7 +229,6 @@ async function updatePinnedSummary(chatId: number | string, row: any) {
   }
 }
 
-// Stap 1 van het dagelijkse Kijk-kompas: Mood & Formaat kiezen
 async function sendDailyCompass(chatId: string) {
   await sendTelegram(
     chatId,
@@ -167,7 +248,6 @@ async function sendDailyCompass(chatId: string) {
   );
 }
 
-// Genereert het persoonlijke "Als ik jou was, zou ik vandaag dit kijken"-advies
 async function generatePersonalPick(chatId: string, userName: string, mood: string, anchorTitle: string) {
   const [{ data: profile }, { data: watchedFilms }, { data: personalList }] = await Promise.all([
     supabase.from("personal_profile").select("*").eq("chat_id", chatId).maybeSingle(),
@@ -180,6 +260,7 @@ async function generatePersonalPick(chatId: string, userName: string, mood: stri
     ...(personalList || []).map((f) => f.title.toLowerCase()),
   ]);
   const dislikes = Array.isArray(profile?.dislikes) ? profile.dislikes : [];
+  const anchors = Array.isArray(profile?.liked_anchors) ? profile.liked_anchors : [];
   const likedSummary = (watchedFilms || [])
     .map((f) => `${f.title} (${f.genre || ""}, ${f.director || ""}${f.rating ? `, ${f.rating}/10` : ""})`)
     .join("; ");
@@ -190,9 +271,10 @@ async function generatePersonalPick(chatId: string, userName: string, mood: stri
 Vandaag is het ${today}. Gebruik Google Search om te controleren wat er RELATIEF NIEUW is uitgekomen (afgelopen 12-18 maanden) en NU te streamen is in Nederland op: HBO Max, Prime Video, Netflix, Disney+ of NPO Start/Plus.
 
 SMAAKPROFIEL VAN ${userName}:
-- Geheugen: ${profile?.taste_summary || "Houdt van sterke verhalen, hoge kwaliteit en goede pacing."}
-- Favorieten & cijfers: ${likedSummary || "Nog opbouwend"}
-- Eerder afgewezen (VERMIJD dit type): ${dislikes.join(", ") || "Geen"}
+- Smaak-DNA: ${profile?.taste_summary || "Houdt van sterke verhalen, hoge kwaliteit en goede pacing."}
+- Gekozen referentie-titels uit smaaktest: ${anchors.join(", ") || "Nog opbouwend"}
+- Eerder beoordeeld: ${likedSummary || "Nog opbouwend"}
+- Afgewezen (VERMIJD): ${dislikes.join(", ") || "Geen"}
 - Gevraagde mood/formaat vandaag: ${mood}
 - Gekozen referentie-anker van vandaag: ${anchorTitle}
 - Al gezien / op lijst (NOOIT aanraden): ${[...alreadySeen].join(", ") || "Geen"}
@@ -206,7 +288,7 @@ Antwoord UITSLUITEND in geldig JSON:
       "query": "Exacte titel voor TMDB",
       "type": "movie of tv",
       "platform": "HBO Max / Prime Video / Netflix / Disney+ / NPO Plus",
-      "why": "2 persoonlijke zinnen waarom dit exact aansluit bij ${anchorTitle}, de mood (${mood}) en wat er nieuw aan is."
+      "why": "2 persoonlijke zinnen waarom dit exact aansluit bij ${anchorTitle}, zijn Smaak-DNA en wat er nieuw aan is."
     }
   ]
 }`;
@@ -295,17 +377,31 @@ Deno.serve(async (req) => {
 
       await answerCallback(cb.id);
 
-      if (action === "mood") {
+      if (action === "pick") {
+        const [stepStr, choice] = payload.split("|");
+        const step = Number(stepStr);
+        const round = TASTE_ROUNDS[step];
+        if (round && choice !== "skip") {
+          const idx = Number(choice);
+          const chosenTitle = round.options[idx];
+          const rejected = round.options.filter((_, i) => i !== idx);
+          if (chosenTitle) await recordTasteChoice(chatId, user, chosenTitle, rejected);
+        }
+        await sendTasteRound(chatId, step + 1, user);
+      } else if (action === "mood") {
         await supabase.from("personal_profile").upsert({ chat_id: chatId, user_name: user, pending_mood: payload });
-        const { data: favorites } = await supabase
-          .from("films")
-          .select("title")
-          .eq("status", "watched")
-          .order("rating", { ascending: false })
-          .limit(3);
+        const [{ data: prof }, { data: favorites }] = await Promise.all([
+          supabase.from("personal_profile").select("liked_anchors").eq("chat_id", chatId).maybeSingle(),
+          supabase.from("films").select("title").eq("status", "watched").order("rating", { ascending: false }).limit(3),
+        ]);
 
-        const favButtons = (favorites || []).map((f) => [{ text: `✨ Zoals: ${f.title}`, callback_data: `anchor:${f.title}` }]);
-        favButtons.push([{ text: "🎲 Verras me op basis van mijn smaak", callback_data: "anchor:Verrassing" }]);
+        // Combineer zijn gekozen smaak-ankers + best beoordeelde films als klikbare referentieknoppen
+        const anchors = Array.isArray(prof?.liked_anchors) ? prof.liked_anchors : [];
+        const watchedTitles = (favorites || []).map((f) => f.title);
+        const combinedPool = [...new Set([...anchors.slice(-3), ...watchedTitles])].slice(0, 3);
+
+        const favButtons = combinedPool.map((title) => [{ text: `✨ Zoals: ${title}`, callback_data: `anchor:${title}` }]);
+        favButtons.push([{ text: "🎲 Verras me op basis van mijn Smaak-DNA", callback_data: "anchor:Smaak-DNA" }]);
 
         await sendTelegram(
           chatId,
@@ -318,23 +414,23 @@ Deno.serve(async (req) => {
         await generatePersonalPick(chatId, user, prof?.pending_mood || "Verrassing", payload);
       } else if (action === "fb_like" || action === "fb_dislike") {
         const { data: prof } = await supabase.from("personal_profile").select("*").eq("chat_id", chatId).maybeSingle();
-        const dislikes = Array.isArray(prof?.dislikes) ? prof.dislikes : [];
-        const nextDislikes = action === "fb_dislike" ? [...new Set([...dislikes, payload])].slice(-15) : dislikes;
-        const note = action === "fb_like"
-          ? `${prof?.taste_summary || ""} Positief op: ${payload}.`.trim()
-          : `${prof?.taste_summary || ""} Vermijd stijl van: ${payload}.`.trim();
+        const prevDislikes: string[] = Array.isArray(prof?.dislikes) ? prof.dislikes : [];
+        const prevAnchors: string[] = Array.isArray(prof?.liked_anchors) ? prof.liked_anchors : [];
+
+        const nextDislikes = action === "fb_dislike" ? [...new Set([...prevDislikes, payload])].slice(-20) : prevDislikes;
+        const nextAnchors = action === "fb_like" ? [...new Set([...prevAnchors, payload])].slice(-25) : prevAnchors;
 
         await supabase.from("personal_profile").upsert({
           chat_id: chatId,
           user_name: user,
-          taste_summary: note.slice(-600),
+          liked_anchors: nextAnchors,
           dislikes: nextDislikes,
         });
 
         await sendTelegram(
           chatId,
           action === "fb_like"
-            ? `✅ Opgeslagen in je smaakprofiel (*${payload}* spreekt je aan).`
+            ? `✅ Toegevoegd aan je smaak-ankers (*${payload}*).`
             : `📝 Genoteerd! Ik sla *${payload}* en vergelijkbare titels voortaan over.`
         );
       } else if (action === "add_personal" || action === "add_watchlist" || action === "add_bios") {
@@ -361,7 +457,6 @@ Deno.serve(async (req) => {
           }
         }
       } else if (action === "choose_movie") {
-        // Stap 1 van de groepsflow: eerst film kiezen, daarna pas dag/tijd voor Nijmegen
         await supabase.from("films").update({ chosen_for_bios: false }).neq("title", payload);
         await supabase.from("films").update({ chosen_for_bios: true, status: "bios" }).eq("title", payload);
 
@@ -419,12 +514,21 @@ Deno.serve(async (req) => {
     const sender = msg.from?.first_name || "Gebruiker";
     const lowerText = msg.text.trim().toLowerCase();
 
-    // Registreer 1-op-1 chat voor dagelijkse 17:30 push
     if (!isGroup) {
       await supabase.from("personal_profile").upsert({ chat_id: chatId, user_name: sender }, { onConflict: "chat_id" });
     }
 
-    // Commando /vandaag -> start Kijk-kompas direct
+    // Smaak-test met 3 titels + Weet niet starten met /smaak
+    if (lowerText.startsWith("/smaak")) {
+      if (!isGroup) {
+        await sendTasteRound(chatId, 0, sender);
+      } else {
+        await sendTelegram(chatId, `Stuur */smaak* even in onze 1-op-1 chat, dan prikken we in 5 rondes jouw smaakprofiel!`);
+      }
+      return new Response("ok");
+    }
+
+    // Commando /vandaag of /start
     if (lowerText.startsWith("/vandaag") || lowerText.startsWith("/start")) {
       if (!isGroup) {
         await sendDailyCompass(chatId);
@@ -457,6 +561,7 @@ Deno.serve(async (req) => {
     const recentChat = (history || []).reverse().map((h) => `${h.sender}: ${h.message}`).join("\n");
     const tasteProfile = (topFilms || []).map((f) => `${f.title} (${f.director}, ${f.status}${f.rating ? `, ${f.rating}/10` : ""})`).join("; ");
     const chosenFilm = (topFilms || []).find((f) => f.chosen_for_bios)?.title || null;
+    const anchors = Array.isArray(personalProf?.liked_anchors) ? personalProf.liked_anchors : [];
 
     const systemPrompt = isGroup
       ? `Je bent CineKringBot voor een vriendengroep van 3 in Nijmegen. Focus UITSLUITEND op: Pathé Nijmegen, Vue Nijmegen en LUX Nijmegen.
@@ -475,13 +580,22 @@ Antwoord UITSLUITEND met geldig JSON:
 }`
       : `Je bent de persoonlijke film-, serie- en docu-curator voor ${sender}.
 Vandaag is het: ${today}. Abonnementen van ${sender}: HBO Max, Prime Video, Netflix, Disney+, NPO Start/Plus.
-Persoonlijk smaakgeheugen: ${personalProf?.taste_summary || tasteProfile || "Nog opbouwend."}
+Smaak-DNA van ${sender}: ${personalProf?.taste_summary || tasteProfile || "Nog opbouwend."}
+Gekozen smaak-ankers: ${anchors.join(", ") || "Geen"}.
 Afgewezen stijlen (vermijd): ${JSON.stringify(personalProf?.dislikes || [])}.
 Gebruik Google Search om te verifiëren wat nieuw/actueel is en op HBO Max, Prime, Netflix, Disney+ of NPO staat.
+
+BELANGRIJK VOOR SMAAKOPBOUW:
+1. Als ${sender} een titel noemt die hij goed vindt (bijv. "ik vond X geweldig") of afwijst, vul dan "anchor_title" (voor positief) of "dislike_item" (voor negatief) in (anders null).
+2. Als ${sender} een cijfer (1 t/m 10) geeft aan een film of serie die hij heeft gekeken, vul dan "rated_item": {"title": "Exacte titel", "score": 8.5, "type": "movie of tv"} in (anders null).
+3. Als ${sender} alleen zijn smaak deelt zonder om aanraders te vragen, mag "movies" leeg [] blijven.
 
 Antwoord UITSLUITEND met geldig JSON:
 {
   "intro": "Persoonlijke, scherpe reactie in max 2 zinnen",
+  "anchor_title": "Exacte titel die hij noemt als favoriet/anker, of null",
+  "dislike_item": "Specifieke titel/afknapper die hij afwijst, of null",
+  "rated_item": null,
   "movies": [
     { "query": "Exacte titel", "type": "movie of tv", "note": "Op welke streamingdienst (HBO/Prime/Netflix/Disney+/NPO) hij staat en waarom hij bij ${sender} past" }
   ],
@@ -506,6 +620,40 @@ Antwoord UITSLUITEND met geldig JSON:
     const parsed = JSON.parse(rawText.replace(/```json\n?|```/g, "").trim());
 
     if (parsed.intro === "SILENT") return new Response("ok");
+
+    if (!isGroup && (parsed.anchor_title || parsed.dislike_item)) {
+      const { data: prof } = await supabase.from("personal_profile").select("*").eq("chat_id", chatId).maybeSingle();
+      const nextAnchors = parsed.anchor_title
+        ? [...new Set([...(Array.isArray(prof?.liked_anchors) ? prof.liked_anchors : []), parsed.anchor_title])].slice(-25)
+        : (prof?.liked_anchors || []);
+      const nextDislikes = parsed.dislike_item
+        ? [...new Set([...(Array.isArray(prof?.dislikes) ? prof.dislikes : []), parsed.dislike_item])].slice(-20)
+        : (prof?.dislikes || []);
+      await supabase.from("personal_profile").upsert({
+        chat_id: chatId,
+        user_name: sender,
+        liked_anchors: nextAnchors,
+        dislikes: nextDislikes,
+      });
+    }
+
+    if (!isGroup && parsed.rated_item?.title && parsed.rated_item?.score) {
+      const ratedMovie = await searchTMDB(parsed.rated_item.title, parsed.rated_item.type === "tv" ? "tv" : "movie");
+      if (ratedMovie) {
+        const score = Number(parsed.rated_item.score);
+        await supabase.from("films").upsert(
+          {
+            ...ratedMovie,
+            status: "watched",
+            added_by: sender,
+            rating: score,
+            friend_ratings: { [sender]: score },
+            voters: [sender],
+          },
+          { onConflict: "tmdb_id" }
+        );
+      }
+    }
 
     const movieList = (parsed.movies || []).slice(0, 4);
     const tmdbPromise = Promise.all(
@@ -534,7 +682,8 @@ Antwoord UITSLUITEND met geldig JSON:
         : undefined;
       await sendTelegram(chatId, `${parsed.intro}\n\n📅 *Voorstel:* ${parsed.propose_date} (${cinemaLabel})`, dateButtons);
     } else if (parsed.intro) {
-      await sendTelegram(chatId, parsed.intro);
+      const badge = !isGroup && (parsed.anchor_title || parsed.dislike_item) ? `\n\n_🧬 Smaak-DNA bijgewerkt_` : "";
+      await sendTelegram(chatId, `${parsed.intro}${badge}`);
     }
 
     const tmdbResults = await tmdbPromise;
